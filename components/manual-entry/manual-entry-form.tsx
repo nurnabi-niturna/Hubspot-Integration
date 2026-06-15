@@ -16,6 +16,8 @@ interface ManualEntryFormProps {
 
 type ManualEntryFormValues = Record<string, string>;
 
+type SaveMode = "contact" | "company" | "both";
+
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const urlPattern = /^(https?:\/\/)?[\w\-]+(\.[\w\-]+)+[\w\-\._~:/?#[\]@!$&'()*+,;=.]+$/i;
 const numberPattern = /^\d+(\.\d+)?$/;
@@ -45,11 +47,13 @@ function buildFieldDefinition(property: HubSpotPropertyDefinition, prefix = "") 
   };
 }
 
-function getValidationRules(property: HubSpotPropertyDefinition) {
+function getValidationRules(property: HubSpotPropertyDefinition, objectType: "contact" | "company", saveMode: SaveMode) {
   const rules: Record<string, unknown> = {};
 
-  if (property.name === "firstname" || property.name === "lastname" || property.name === "email") {
-    rules.required = `${property.label} is required.`;
+  if (objectType === "contact") {
+    if (property.name === "email" && saveMode !== "company") {
+      rules.required = `${property.label} is required.`;
+    }
   }
 
   if (property.format === "email") {
@@ -70,6 +74,13 @@ function getValidationRules(property: HubSpotPropertyDefinition) {
     rules.pattern = {
       value: numberPattern,
       message: "Enter a numeric value.",
+    };
+  }
+
+  if (property.name === "hubspot_owner_id") {
+    rules.pattern = {
+      value: /^[0-9]+$/,
+      message: "Owner ID must contain only numbers.",
     };
   }
 
@@ -96,13 +107,10 @@ function getFieldType(property: HubSpotPropertyDefinition) {
   return "text" as const;
 }
 
-function getFieldInputSize(property: HubSpotPropertyDefinition) {
-  return property.type === "number" ? "max-w-sm" : "";
-}
-
 export function ManualEntryForm({ contactProperties, companyProperties }: ManualEntryFormProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [saveMode, setSaveMode] = useState<SaveMode>("both");
 
   const defaultValues = useMemo(
     () => getDefaultValues(contactProperties, companyProperties),
@@ -143,50 +151,30 @@ export function ManualEntryForm({ contactProperties, companyProperties }: Manual
   const contactSections = [
     {
       title: "Contact Information",
-      description: "Core contact properties for HubSpot.",
-      fields: [
-        "firstname",
-        "lastname",
-        "email",
-        "phone",
-        "mobilephone",
-        "jobtitle",
-        "company",
-      ],
+      description: "Core contact fields for HubSpot contact creation.",
+      fields: ["firstname", "lastname", "email", "phone", "mobilephone", "jobtitle", "company"],
     },
     {
       title: "Location",
-      description: "Contact location and website details.",
-      fields: [
-        "city",
-        "state",
-        "hs_state_code",
-        "country",
-        "hs_country_region_code",
-        "website",
-      ],
+      description: "Contact location details.",
+      fields: ["city", "state", "country", "hs_state_code", "hs_country_region_code"],
     },
     {
-      title: "Social Profiles",
-      description: "External social and profile links.",
-      fields: ["hs_linkedin_url", "facebook"],
+      title: "Social",
+      description: "Contact social profile links.",
+      fields: ["hs_linkedin_url", "facebook", "website"],
     },
     {
-      title: "Lead Management",
-      description: "Track lead status, lifecycle stage, and segmentation.",
-      fields: ["hs_lead_status", "lifecyclestage", "gender", "createdate"],
-    },
-    {
-      title: "Ownership",
-      description: "Assign contact ownership in HubSpot.",
-      fields: ["hubspot_owner_id"],
+      title: "CRM",
+      description: "Contact CRM fields such as status and owner.",
+      fields: ["hs_lead_status", "lifecyclestage", "hubspot_owner_id"],
     },
   ];
 
   const companySections = [
     {
       title: "Company Information",
-      description: "Core company details for HubSpot.",
+      description: "Core company fields for HubSpot company creation.",
       fields: [
         "name",
         "domain",
@@ -202,7 +190,7 @@ export function ManualEntryForm({ contactProperties, companyProperties }: Manual
     },
     {
       title: "Additional Company Details",
-      description: "Supplemental company metadata for imports.",
+      description: "Supplemental company fields for richer company records.",
       fields: [
         "annualrevenue",
         "description",
@@ -242,10 +230,17 @@ export function ManualEntryForm({ contactProperties, companyProperties }: Manual
     }, {});
 
     try {
+      const payload = {
+        contact: saveMode !== "company" ? contactPayload : undefined,
+        company: saveMode !== "contact" ? (Object.keys(companyPayload).length ? companyPayload : undefined) : undefined,
+        associate: saveMode === "both",
+        saveMode,
+      };
+
       const response = await fetch("/api/hubspot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contact: contactPayload, company: Object.keys(companyPayload).length ? companyPayload : undefined, associate: Boolean(companyPayload.name || companyPayload.domain) }),
+        body: JSON.stringify(payload),
       });
 
       const result = await response.json();
@@ -276,6 +271,36 @@ export function ManualEntryForm({ contactProperties, companyProperties }: Manual
           </div>
         </section>
 
+        <div className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm shadow-slate-900/5">
+          <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-900">Save As</p>
+              <p className="text-sm text-slate-600">Choose whether to save contact, company, or both.</p>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: "Contact", value: "contact" as SaveMode },
+                { label: "Company", value: "company" as SaveMode },
+                { label: "Both", value: "both" as SaveMode },
+              ].map((option) => (
+                <Button
+                  key={option.value}
+                  type="button"
+                  variant={saveMode === option.value ? "secondary" : "outline"}
+                  onClick={() => setSaveMode(option.value)}
+                >
+                  {option.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+            {saveMode === "contact" && "Saving as Contact only. Company data will be ignored."}
+            {saveMode === "company" && "Saving as Company only. Contact data will be ignored."}
+            {saveMode === "both" && "Saving both contact and company. The objects will be associated after save."}
+          </div>
+        </div>
+
         <form onSubmit={handleSubmit(onSubmit)} className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
           <div className="space-y-6">
             {contactSections.map((section) => (
@@ -289,7 +314,7 @@ export function ManualEntryForm({ contactProperties, companyProperties }: Manual
                     {section.fields.map((fieldName) => {
                       const field = fieldDefinition(fieldName, "contact");
                       if (!field) return null;
-                      const rules = getValidationRules(contactMap[field.propertyName]);
+                      const rules = getValidationRules(contactMap[field.propertyName], "contact", saveMode);
                       const value = watchedValues[field.key] ?? "";
 
                       if (contactMap[field.propertyName]?.type === "enumeration" && contactMap[field.propertyName]?.options?.length) {
@@ -343,7 +368,7 @@ export function ManualEntryForm({ contactProperties, companyProperties }: Manual
                       const field = fieldDefinition(fieldName, "company");
                       if (!field) return null;
                       const property = companyMap[rawName];
-                      const rules = getValidationRules(property);
+                      const rules = getValidationRules(property, "company", saveMode);
                       const value = watchedValues[field.key] ?? "";
 
                       if (rawName === "name") {

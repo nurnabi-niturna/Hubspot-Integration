@@ -41,7 +41,7 @@ export function Select({ label, options, searchable, value, onValueChange, class
             <option value="">Unmapped</option>
             {filteredOptions.map((option) => (
               <option key={option.value} value={option.value}>
-                {option.label} ({option.value})
+                {option.label}
               </option>
             ))}
           </select>
@@ -56,7 +56,7 @@ export function Select({ label, options, searchable, value, onValueChange, class
           <option value="">Unmapped</option>
           {options.map((option) => (
             <option key={option.value} value={option.value}>
-              {option.label} ({option.value})
+              {option.label}
             </option>
           ))}
         </select>

@@ -44,7 +44,7 @@ function parseSession<T>(key: string, fallback: T): T {
 }
 
 export function MappingScreen({ propertyOptions }: MappingScreenProps) {
-  const [sourceColumns, setSourceColumns] = useState<string[]>(() => parseSession("upload-source-columns", defaultSourceColumns));
+  const [sourceColumns] = useState<string[]>(() => parseSession("upload-source-columns", defaultSourceColumns));
   const [mappings, setMappings] = useState<ColumnMapping[]>(() => parseSession("upload-column-mappings", defaultMappings));
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
 

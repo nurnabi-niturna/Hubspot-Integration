@@ -1,4 +1,5 @@
 import { hubspot } from "@/app/lib/hubspot";
+import { filterWritableProperties } from "@/lib/hubspotProperties.server";
 
 export type HubSpotProperties = Record<string, string | number | boolean | null>;
 
@@ -76,7 +77,8 @@ async function updateObject(objectType: "contacts" | "companies", objectId: stri
 }
 
 export async function upsertContact(properties: HubSpotProperties): Promise<UpsertResult> {
-  const email = String(properties.email ?? "").trim();
+  const filteredProperties = filterWritableProperties(properties, "contact");
+  const email = String(filteredProperties.email ?? "").trim();
   if (!email) {
     throw new Error("Contact email is required for upsert.");
   }
@@ -84,17 +86,18 @@ export async function upsertContact(properties: HubSpotProperties): Promise<Upse
   const existingContact = await getContactByEmail(email);
 
   if (existingContact?.id) {
-    const updated = await updateObject("contacts", existingContact.id, properties);
-    return { id: existingContact.id, action: "updated", properties: updated.properties ?? properties };
+    const updated = await updateObject("contacts", existingContact.id, filteredProperties);
+    return { id: existingContact.id, action: "updated", properties: updated.properties ?? filteredProperties };
   }
 
-  const created = await createObject("contacts", properties);
-  return { id: created.id, action: "created", properties: created.properties ?? properties };
+  const created = await createObject("contacts", filteredProperties);
+  return { id: created.id, action: "created", properties: created.properties ?? filteredProperties };
 }
 
 export async function upsertCompany(properties: HubSpotProperties): Promise<UpsertResult> {
-  const domain = String(properties.domain ?? "").trim();
-  const name = String(properties.name ?? "").trim();
+  const filteredProperties = filterWritableProperties(properties, "company");
+  const domain = String(filteredProperties.domain ?? "").trim();
+  const name = String(filteredProperties.name ?? "").trim();
 
   if (!domain && !name) {
     throw new Error("Company name or domain is required for upsert.");
@@ -103,12 +106,12 @@ export async function upsertCompany(properties: HubSpotProperties): Promise<Upse
   const existingCompany = await getCompanyByDomainOrName(domain || undefined, name || undefined);
 
   if (existingCompany?.id) {
-    const updated = await updateObject("companies", existingCompany.id, properties);
-    return { id: existingCompany.id, action: "updated", properties: updated.properties ?? properties };
+    const updated = await updateObject("companies", existingCompany.id, filteredProperties);
+    return { id: existingCompany.id, action: "updated", properties: updated.properties ?? filteredProperties };
   }
 
-  const created = await createObject("companies", properties);
-  return { id: created.id, action: "created", properties: created.properties ?? properties };
+  const created = await createObject("companies", filteredProperties);
+  return { id: created.id, action: "created", properties: created.properties ?? filteredProperties };
 }
 
 export async function associateContactAndCompany(contactId: string, companyId: string) {

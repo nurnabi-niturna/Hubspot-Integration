@@ -13,5 +13,6 @@ export interface HubSpotPropertyDefinition {
   format: HubSpotPropertyFormat;
   objectType: "contact" | "company";
   primary: boolean;
+  readonly?: boolean;
   options?: HubSpotPropertyOption[];
 }
