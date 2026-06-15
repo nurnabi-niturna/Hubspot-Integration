@@ -12,8 +12,58 @@ type PreviewRow = {
 };
 
 function getFieldName(columns: string[], key: "email" | "name" | "domain") {
-  const normalized = key === "email" ? /email/i : key === "name" ? /name/i : /domain/i;
+  const normalized = key === "email" ? /email/i : key === "name" ? /name|company\s*name/i : /domain/i;
   return columns.find((column) => normalized.test(column));
+}
+
+function inferColumnType(column: string) {
+  const normalized = column.toLowerCase();
+
+  if (/email/.test(normalized)) {
+    return "email";
+  }
+
+  if (/website|url|linkedin|facebook|logo/.test(normalized)) {
+    return "url";
+  }
+
+  if (/phone|mobile/.test(normalized)) {
+    return "phone";
+  }
+
+  if (/revenue|annual.*revenue|amount|number|count|size/.test(normalized)) {
+    return "number";
+  }
+
+  if (/date|createdate|created/.test(normalized)) {
+    return "datetime";
+  }
+
+  return "text";
+}
+
+function validateValue(value: string, columnType: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (columnType === "email") {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(trimmed) ? null : "Invalid email format.";
+  }
+
+  if (columnType === "url") {
+    const urlRegex = /^(https?:\/\/)?[\w\-]+(\.[\w\-]+)+[\w\-\._~:/?#[\]@!$&'()*+,;=.]+$/i;
+    return urlRegex.test(trimmed) ? null : "Invalid URL format.";
+  }
+
+  if (columnType === "number") {
+    const numberRegex = /^\d+(\.\d+)?$/;
+    return numberRegex.test(trimmed) ? null : "Value must be numeric.";
+  }
+
+  return null;
 }
 
 function validateRow(row: PreviewRow, columns: string[]) {
@@ -29,6 +79,15 @@ function validateRow(row: PreviewRow, columns: string[]) {
 
   if (!emailValue && !nameValue && !domainValue) {
     errors.push("Missing required email or company name/domain.");
+  }
+
+  for (const column of columns) {
+    const value = String(row[column] ?? "");
+    const type = inferColumnType(column);
+    const validationError = validateValue(value, type);
+    if (validationError) {
+      errors.push(`${column}: ${validationError}`);
+    }
   }
 
   return errors;
