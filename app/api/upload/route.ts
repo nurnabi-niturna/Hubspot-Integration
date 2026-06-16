@@ -1,8 +1,9 @@
 import type { NextRequest } from "next/server";
 import { filterWritableProperties } from "@/lib/hubspotProperties.server";
-import { upsertContact, upsertCompany, associateContactAndCompany } from "@/app/lib/hubspotClient";
+import { friendlyHubspotApiCall, upsertContact, upsertCompany, associateContactAndCompany } from "@/app/lib/hubspotClient";
 
 interface BatchUploadPayload {
+  accessToken?: string;
   rows: Array<{
     contact?: Record<string, string | number | null>;
     company?: Record<string, string | number | null>;
@@ -12,6 +13,14 @@ interface BatchUploadPayload {
 export async function POST(req: NextRequest): Promise<Response> {
   try {
     const body: BatchUploadPayload = await req.json();
+    const accessToken = body.accessToken?.trim();
+
+    if (!accessToken && !process.env.HUBSPOT_ACCESS_TOKEN) {
+      return Response.json(
+        { success: false, message: "Enter and validate a HubSpot private app access token first." },
+        { status: 400 }
+      );
+    }
 
     if (!body.rows || !Array.isArray(body.rows)) {
       return Response.json(
@@ -28,6 +37,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
 
     const results = [];
+    const errorRows = [];
     let successCount = 0;
     let errorCount = 0;
 
@@ -46,7 +56,7 @@ export async function POST(req: NextRequest): Promise<Response> {
             throw new Error("Contact row requires email address");
           }
 
-          const contactResult = await upsertContact(contactPayload);
+          const contactResult = await friendlyHubspotApiCall(() => upsertContact(contactPayload, accessToken));
           contactId = contactResult.id;
         }
 
@@ -59,13 +69,15 @@ export async function POST(req: NextRequest): Promise<Response> {
             throw new Error("Company row requires name or domain");
           }
 
-          const companyResult = await upsertCompany(companyPayload);
+          const companyResult = await friendlyHubspotApiCall(() => upsertCompany(companyPayload, accessToken));
           companyId = companyResult.id;
         }
 
         // Associate contact to company if both exist
         if (contactId && companyId) {
-          await associateContactAndCompany(contactId, companyId);
+          const currentContactId = contactId;
+          const currentCompanyId = companyId;
+          await friendlyHubspotApiCall(() => associateContactAndCompany(currentContactId, currentCompanyId, accessToken));
         }
 
         results.push({
@@ -80,6 +92,11 @@ export async function POST(req: NextRequest): Promise<Response> {
       } catch (error: unknown) {
         const err = error as { message?: string };
         errorCount++;
+        errorRows.push({
+          rowIndex,
+          message: err.message || "Failed to process row",
+          row,
+        });
         results.push({
           rowIndex,
           success: false,
@@ -90,6 +107,10 @@ export async function POST(req: NextRequest): Promise<Response> {
 
     return Response.json({
       success: errorCount === 0,
+      totalProcessed: body.rows.length,
+      successCount,
+      failureCount: errorCount,
+      errorRows,
       message: `Processed ${body.rows.length} rows: ${successCount} succeeded, ${errorCount} failed`,
       results,
     });

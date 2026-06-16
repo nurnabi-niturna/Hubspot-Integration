@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ChoiceCard } from "@/components/home/choice-card";
+import { HubspotAccessGate, type HubspotAccessState } from "@/components/hubspot-access-gate";
 
 const options = [
   {
@@ -15,8 +16,8 @@ const options = [
   },
   {
     id: "upload",
-    title: "Upload CSV/XLSX",
-    description: "Import contacts and companies from a spreadsheet quickly.",
+    title: "Upload CSV",
+    description: "Import contacts and companies from a single CSV file.",
     actionLabel: "Upload File",
     icon: "📁",
   },
@@ -25,6 +26,12 @@ const options = [
 export default function Home() {
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [access, setAccess] = useState<HubspotAccessState>({
+    accessToken: "",
+    validated: false,
+    scopes: [],
+    missingRecommendedScopes: [],
+  });
 
   const selectedLabel = useMemo(
     () => options.find((item) => item.id === selectedOption)?.title,
@@ -32,6 +39,10 @@ export default function Home() {
   );
 
   function handleSelect(optionId: string) {
+    if (!access.validated) {
+      return;
+    }
+
     setLoading(true);
     setTimeout(() => {
       setSelectedOption(optionId);
@@ -65,6 +76,8 @@ export default function Home() {
             </div>
           </div>
         </section>
+
+        <HubspotAccessGate onAccessChange={setAccess} />
 
         <section className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
           <div className="rounded-[2rem] border border-slate-200/80 bg-white p-8 shadow-sm shadow-slate-900/5">
@@ -131,7 +144,11 @@ export default function Home() {
                 <p className="text-slate-600 leading-7">
                   You can continue with this workflow and configure fields or upload settings for the selected path.
                 </p>
-                {selectedOption === "manual" ? (
+                {!access.validated ? (
+                  <Button variant="default" size="lg" type="button" disabled>
+                    Validate HubSpot key first
+                  </Button>
+                ) : selectedOption === "manual" ? (
                   <Link href="/manual-entry" className="w-full sm:w-auto">
                     <Button variant="default" size="lg" type="button" disabled={loading}>
                       Continue

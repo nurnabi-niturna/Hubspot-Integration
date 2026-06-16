@@ -1,9 +1,15 @@
 import axios from "axios";
 
-export const hubspot = axios.create({
-  baseURL: "https://api.hubapi.com",
-  headers: {
-    Authorization: `Bearer ${process.env.HUBSPOT_ACCESS_TOKEN}`,
-    "Content-Type": "application/json",
-  },
-});
+export function createHubspotClient(accessToken?: string) {
+  const token = accessToken?.trim() || process.env.HUBSPOT_ACCESS_TOKEN?.trim();
+
+  return axios.create({
+    baseURL: "https://api.hubapi.com",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      "Content-Type": "application/json",
+    },
+  });
+}
+
+export const hubspot = createHubspotClient();

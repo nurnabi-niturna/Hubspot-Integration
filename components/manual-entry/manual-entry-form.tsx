@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Toast } from "@/components/ui/toast";
+import { HubspotAccessGate, type HubspotAccessState } from "@/components/hubspot-access-gate";
 import type { HubSpotPropertyDefinition } from "@/lib/hubspotProperties";
 
 interface ManualEntryFormProps {
@@ -70,8 +71,7 @@ function getValidationRules(property: HubSpotPropertyDefinition, objectType: "co
     };
   }
 
-  // Only apply numeric validation for actual numeric fields (like Annual Revenue), not text fields with numeric codes
-  if (property.type === "number" && property.name !== "hs_state_code" && property.name !== "hs_country_region_code") {
+  if (property.format === "number") {
     rules.pattern = {
       value: numberPattern,
       message: "Enter a numeric value.",
@@ -112,6 +112,12 @@ export function ManualEntryForm({ contactProperties, companyProperties }: Manual
   const [isLoading, setIsLoading] = useState(false);
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [saveMode, setSaveMode] = useState<SaveMode>("both");
+  const [access, setAccess] = useState<HubspotAccessState>({
+    accessToken: "",
+    validated: false,
+    scopes: [],
+    missingRecommendedScopes: [],
+  });
 
   const defaultValues = useMemo(
     () => getDefaultValues(contactProperties, companyProperties),
@@ -120,9 +126,10 @@ export function ManualEntryForm({ contactProperties, companyProperties }: Manual
 
   const {
     register,
+    control,
     handleSubmit,
     setValue,
-    watch,
+    trigger,
     getValues,
     formState: { errors, isValid },
   } = useForm<ManualEntryFormValues>({
@@ -130,7 +137,7 @@ export function ManualEntryForm({ contactProperties, companyProperties }: Manual
     defaultValues,
   });
 
-  const watchedValues = watch();
+  const watchedValues = useWatch({ control }) as ManualEntryFormValues;
 
   useEffect(() => {
     if (toast) {
@@ -212,6 +219,11 @@ export function ManualEntryForm({ contactProperties, companyProperties }: Manual
   };
 
   const onSubmit = async (values: ManualEntryFormValues) => {
+    if (!access.validated) {
+      setToast({ type: "error", message: "Validate your HubSpot private app access token first." });
+      return;
+    }
+
     setIsLoading(true);
 
     const contactPayload = Object.keys(contactMap).reduce<Record<string, string>>((acc, propertyName) => {
@@ -232,6 +244,7 @@ export function ManualEntryForm({ contactProperties, companyProperties }: Manual
 
     try {
       const payload = {
+        accessToken: access.accessToken,
         contact: saveMode !== "company" ? contactPayload : undefined,
         company: saveMode !== "contact" ? (Object.keys(companyPayload).length ? companyPayload : undefined) : undefined,
         associate: saveMode === "both",
@@ -250,7 +263,7 @@ export function ManualEntryForm({ contactProperties, companyProperties }: Manual
         throw new Error(result.message || "Unable to submit HubSpot data.");
       }
 
-      setToast({ type: "success", message: "Contact and company saved to HubSpot successfully." });
+      setToast({ type: "success", message: "HubSpot record saved successfully." });
     } catch (error: unknown) {
       const err = error as { message?: string };
       setToast({ type: "error", message: err.message ?? "Unable to submit HubSpot data." });
@@ -272,6 +285,8 @@ export function ManualEntryForm({ contactProperties, companyProperties }: Manual
           </div>
         </section>
 
+        <HubspotAccessGate compact onAccessChange={setAccess} />
+
         <div className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm shadow-slate-900/5">
           <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -288,7 +303,10 @@ export function ManualEntryForm({ contactProperties, companyProperties }: Manual
                   key={option.value}
                   type="button"
                   variant={saveMode === option.value ? "secondary" : "outline"}
-                  onClick={() => setSaveMode(option.value)}
+                  onClick={() => {
+                    setSaveMode(option.value);
+                    window.setTimeout(() => trigger(), 0);
+                  }}
                 >
                   {option.label}
                 </Button>
@@ -327,7 +345,7 @@ export function ManualEntryForm({ contactProperties, companyProperties }: Manual
                               label=""
                               searchable={field.propertyName === "hs_lead_status" || field.propertyName === "lifecyclestage"}
                               value={String(value)}
-                              onValueChange={(next) => setValue(field.key, next)}
+                              onValueChange={(next) => setValue(field.key, next, { shouldDirty: true, shouldValidate: true })}
                             />
                             {errors[field.key] ? <p className="text-sm text-rose-600">{errors[field.key]?.message}</p> : null}
                           </div>
@@ -374,12 +392,14 @@ export function ManualEntryForm({ contactProperties, companyProperties }: Manual
 
                       if (rawName === "name") {
                         rules.validate = (value: string) =>
+                          saveMode === "contact" ||
                           value.trim().length > 0 || getValues("company_domain").trim().length > 0 ||
                           "Company name or domain is required.";
                       }
 
                       if (rawName === "domain") {
                         rules.validate = (value: string) =>
+                          saveMode === "contact" ||
                           value.trim().length > 0 || getValues("company_name").trim().length > 0 ||
                           "Company name or domain is required.";
                       }
@@ -393,7 +413,7 @@ export function ManualEntryForm({ contactProperties, companyProperties }: Manual
                               label=""
                               searchable={field.propertyName === "industry" || field.propertyName === "company_size" || field.propertyName === "type"}
                               value={String(value)}
-                              onValueChange={(next) => setValue(field.key, next)}
+                              onValueChange={(next) => setValue(field.key, next, { shouldDirty: true, shouldValidate: true })}
                             />
                             {errors[field.key] ? <p className="text-sm text-rose-600">{errors[field.key]?.message}</p> : null}
                           </div>
@@ -438,7 +458,7 @@ export function ManualEntryForm({ contactProperties, companyProperties }: Manual
                 <p className="text-sm font-semibold text-slate-900">Submit your import data</p>
                 <p className="text-sm text-slate-600">The form sends a contact and optional company payload to HubSpot.</p>
               </div>
-              <Button type="submit" variant="default" size="lg" isLoading={isLoading} disabled={!isValid || isLoading}>
+              <Button type="submit" variant="default" size="lg" isLoading={isLoading} disabled={!access.validated || !isValid || isLoading}>
                 Save manual entry
               </Button>
             </div>
