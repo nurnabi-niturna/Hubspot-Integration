@@ -8,8 +8,6 @@ const REQUIRED_SCOPES = [
   "crm.objects.companies.write",
 ];
 
-const RECOMMENDED_SCOPES = ["crm.objects.deals.read", "crm.objects.deals.write"];
-
 function unique(values: string[]) {
   return Array.from(new Set(values.filter(Boolean)));
 }
@@ -41,13 +39,11 @@ export async function POST(req: Request) {
     const hubspot = createHubspotClient(accessToken);
 
     let scopes: string[] = [];
-    let missingRecommendedScopes = RECOMMENDED_SCOPES;
 
     try {
       const tokenInfo = await hubspot.get(`/oauth/v1/access-tokens/${encodeURIComponent(accessToken)}`);
       scopes = unique((tokenInfo.data?.scopes ?? tokenInfo.data?.scope ?? []) as string[]);
       const missingRequiredScopes = REQUIRED_SCOPES.filter((scope) => !scopes.includes(scope));
-      missingRecommendedScopes = RECOMMENDED_SCOPES.filter((scope) => !scopes.includes(scope));
 
       if (missingRequiredScopes.length) {
         return NextResponse.json(
@@ -56,7 +52,7 @@ export async function POST(req: Request) {
             message: missingScopeMessage(missingRequiredScopes),
             scopes,
             missingRequiredScopes,
-            missingRecommendedScopes,
+            missingRecommendedScopes: [],
           },
           { status: 403 },
         );
@@ -64,12 +60,10 @@ export async function POST(req: Request) {
 
       return NextResponse.json({
         success: true,
-        message: missingRecommendedScopes.length
-          ? "Token validated. Contact and company permissions are ready. Deal scopes are missing."
-          : "Token validated with the required HubSpot permissions.",
+        message: "Token validated with the required HubSpot permissions.",
         scopes,
         missingRequiredScopes,
-        missingRecommendedScopes,
+        missingRecommendedScopes: [],
         hubId: tokenInfo.data?.hub_id ?? tokenInfo.data?.hubId,
         user: tokenInfo.data?.user,
       });
@@ -115,7 +109,7 @@ export async function POST(req: Request) {
           message: missingScopeMessage(missingRequiredScopes),
           scopes,
           missingRequiredScopes,
-          missingRecommendedScopes,
+          missingRecommendedScopes: [],
         },
         { status: 403 },
       );
@@ -127,7 +121,7 @@ export async function POST(req: Request) {
         "Token validated for HubSpot contact and company access. Write permissions will also be checked by HubSpot during save/import.",
       scopes,
       missingRequiredScopes: [],
-      missingRecommendedScopes,
+      missingRecommendedScopes: [],
     });
   } catch (error: unknown) {
     const err = error as { response?: { status?: number } };

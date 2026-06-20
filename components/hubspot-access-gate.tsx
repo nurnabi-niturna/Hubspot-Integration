@@ -147,11 +147,7 @@ export function HubspotAccessGate({ onAccessChange, compact }: HubspotAccessGate
           </div>
         ) : null}
 
-        {access.validated && access.missingRecommendedScopes.length ? (
-          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            Deal scopes are missing: {access.missingRecommendedScopes.join(", ")}. Contacts and companies can still be imported.
-          </div>
-        ) : null}
+        {/* Access validation status is displayed via the message block above */}
       </CardContent>
     </Card>
   );

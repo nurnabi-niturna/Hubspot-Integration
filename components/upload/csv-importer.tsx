@@ -10,8 +10,8 @@ import { Toast } from "@/components/ui/toast";
 import type { HubSpotPropertyDefinition } from "@/lib/hubspotProperties";
 
 type PreviewRow = { id: string; [key: string]: string };
-type MappingValue = "" | `${"contact" | "company"}:${string}`;
 type ImportStep = "upload" | "mapping" | "summary" | "result";
+type ImportObjectType = "contact" | "company";
 
 interface CsvImporterProps {
   contactProperties: HubSpotPropertyDefinition[];
@@ -36,41 +36,38 @@ function normalize(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-function inferMapping(column: string, contactProperties: HubSpotPropertyDefinition[], companyProperties: HubSpotPropertyDefinition[]): MappingValue {
-  const normalized = normalize(column);
-  const aliases: Record<string, MappingValue> = {
-    email: "contact:email",
-    firstname: "contact:firstname",
-    first: "contact:firstname",
-    lastname: "contact:lastname",
-    last: "contact:lastname",
-    phone: "contact:phone",
-    mobile: "contact:mobilephone",
-    jobtitle: "contact:jobtitle",
-    title: "contact:jobtitle",
-    company: "company:name",
-    companyname: "company:name",
-    name: "company:name",
-    domain: "company:domain",
-    companydomain: "company:domain",
-    website: "company:website",
-    city: "contact:city",
-    state: "contact:state",
-    country: "contact:country",
-    linkedin: "contact:hs_linkedin_url",
-    facebook: "contact:facebook",
-  };
-
-  if (aliases[normalized]) {
-    return aliases[normalized];
+function inferCsvColumnMapping(property: HubSpotPropertyDefinition, columns: string[]): string {
+  const propName = normalize(property.name);
+  const propLabel = normalize(property.label);
+  
+  for (const column of columns) {
+    const colNorm = normalize(column);
+    if (colNorm === propName || colNorm === propLabel) {
+      return column;
+    }
   }
 
-  const allProperties = [
-    ...contactProperties.map((property) => ({ objectType: "contact" as const, property })),
-    ...companyProperties.map((property) => ({ objectType: "company" as const, property })),
-  ];
-  const match = allProperties.find(({ property }) => normalize(property.label) === normalized || normalize(property.name) === normalized);
-  return match ? `${match.objectType}:${match.property.name}` : "";
+  const aliases: Record<string, string[]> = {
+    email: ["email", "emailaddress", "mail"],
+    firstname: ["firstname", "first", "fname"],
+    lastname: ["lastname", "last", "lname"],
+    phone: ["phone", "phonenumber", "telephone"],
+    mobilephone: ["mobile", "mobilephone", "cellphone"],
+    jobtitle: ["jobtitle", "title", "role"],
+    company: ["company", "companyname", "org", "organization"],
+    name: ["companyname", "name", "company"],
+    domain: ["domain", "companydomain", "website"],
+    website: ["website", "site", "webaddress", "url"],
+  };
+
+  const propertyAliases = aliases[property.name] || [];
+  for (const col of columns) {
+    if (propertyAliases.includes(normalize(col))) {
+      return col;
+    }
+  }
+
+  return "";
 }
 
 function coerceEnum(value: string, property: HubSpotPropertyDefinition) {
@@ -88,78 +85,58 @@ function coerceEnum(value: string, property: HubSpotPropertyDefinition) {
   return loose?.value ?? trimmed;
 }
 
-function buildPayload(
+function buildPayloadForObjectType(
   row: PreviewRow,
-  columns: string[],
-  mapping: Record<string, MappingValue>,
-  propertyMap: Map<string, HubSpotPropertyDefinition>,
+  mapping: Record<string, string>,
+  properties: HubSpotPropertyDefinition[],
 ) {
-  const contact: Record<string, string> = {};
-  const company: Record<string, string> = {};
-
-  for (const column of columns) {
-    const target = mapping[column];
-    const rawValue = String(row[column] ?? "").trim();
-    if (!target || !rawValue) continue;
-
-    const [objectType, propertyName] = target.split(":") as ["contact" | "company", string];
-    const definition = propertyMap.get(target);
-    const value = definition ? coerceEnum(rawValue, definition) : rawValue;
-
-    if (objectType === "contact") {
-      contact[propertyName] = value;
-    } else {
-      company[propertyName] = value;
-    }
+  const payload: Record<string, string> = {};
+  for (const property of properties) {
+    const csvColumn = mapping[property.name];
+    if (!csvColumn) continue;
+    const rawValue = String(row[csvColumn] ?? "").trim();
+    if (!rawValue) continue;
+    const value = coerceEnum(rawValue, property);
+    payload[property.name] = value;
   }
-
-  return {
-    contact: Object.keys(contact).length ? contact : undefined,
-    company: Object.keys(company).length ? company : undefined,
-  };
+  return payload;
 }
 
-function validatePayload(
+function validatePayloadForObjectType(
   row: PreviewRow,
-  columns: string[],
-  mapping: Record<string, MappingValue>,
-  propertyMap: Map<string, HubSpotPropertyDefinition>,
+  mapping: Record<string, string>,
+  properties: HubSpotPropertyDefinition[],
+  objectType: ImportObjectType,
 ) {
   const errors: string[] = [];
-  const payload = buildPayload(row, columns, mapping, propertyMap);
+  const payload = buildPayloadForObjectType(row, mapping, properties);
 
-  if (!payload.contact && !payload.company) {
-    errors.push("Map at least one column for this row.");
-  }
-
-  if (payload.contact) {
-    if (!payload.contact.email) {
+  if (objectType === "contact") {
+    if (!payload.email) {
       errors.push("Email is required for contact import.");
-    } else if (!emailPattern.test(payload.contact.email)) {
+    } else if (!emailPattern.test(payload.email)) {
       errors.push("Email format is invalid.");
+    }
+  } else {
+    if (!payload.name && !payload.domain) {
+      errors.push("Company name or domain is required for company import.");
     }
   }
 
-  if (payload.company && !payload.company.name && !payload.company.domain) {
-    errors.push("Company name or domain is required for company import.");
-  }
-
-  for (const column of columns) {
-    const target = mapping[column];
-    const value = String(row[column] ?? "").trim();
-    if (!target || !value) continue;
-
-    const property = propertyMap.get(target);
-    if (!property) continue;
+  for (const property of properties) {
+    const csvColumn = mapping[property.name];
+    if (!csvColumn) continue;
+    const value = String(row[csvColumn] ?? "").trim();
+    if (!value) continue;
 
     if (property.format === "number" && !numberPattern.test(value)) {
-      errors.push(`${column}: value must be numeric.`);
+      errors.push(`${csvColumn}: value must be numeric.`);
     }
 
     if (property.type === "enumeration" && property.options?.length) {
       const coerced = coerceEnum(value, property);
       if (!property.options.some((option) => option.value === coerced)) {
-        errors.push(`${column}: selected value is not allowed for ${property.label}.`);
+        errors.push(`${csvColumn}: selected value is not allowed for ${property.label}.`);
       }
     }
   }
@@ -168,49 +145,50 @@ function validatePayload(
 }
 
 export function CsvImporter({ contactProperties, companyProperties }: CsvImporterProps) {
-  const writableContactProperties = contactProperties.filter((property) => !property.readonly);
-  const writableCompanyProperties = companyProperties.filter((property) => !property.readonly);
+  const writableContactProperties = useMemo(() => contactProperties.filter((property) => !property.readonly), [contactProperties]);
+  const writableCompanyProperties = useMemo(() => companyProperties.filter((property) => !property.readonly), [companyProperties]);
+
   const [access, setAccess] = useState<HubspotAccessState>({ accessToken: "", validated: false, scopes: [], missingRecommendedScopes: [] });
+  const [importObjectType, setImportObjectType] = useState<ImportObjectType | null>(null);
   const [step, setStep] = useState<ImportStep>("upload");
   const [fileName, setFileName] = useState("");
   const [columns, setColumns] = useState<string[]>([]);
   const [rows, setRows] = useState<PreviewRow[]>([]);
-  const [mapping, setMapping] = useState<Record<string, MappingValue>>({});
+  const [mapping, setMapping] = useState<Record<string, string>>({}); // propertyName -> CSV column
   const [isParsing, setIsParsing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
 
-  const propertyOptions = useMemo(
+  const activeProperties = useMemo(() => {
+    if (importObjectType === "contact") return writableContactProperties;
+    if (importObjectType === "company") return writableCompanyProperties;
+    return [];
+  }, [importObjectType, writableContactProperties, writableCompanyProperties]);
+
+  const csvColumnOptions = useMemo(
     () => [
-      ...writableContactProperties.map((property) => ({ label: `Contact - ${property.label}`, value: `contact:${property.name}` })),
-      ...writableCompanyProperties.map((property) => ({ label: `Company - ${property.label}`, value: `company:${property.name}` })),
+      { label: "Do Not Map", value: "" },
+      ...columns.map((column) => ({ label: column, value: column })),
     ],
-    [writableContactProperties, writableCompanyProperties],
+    [columns],
   );
 
-  const propertyMap = useMemo(() => {
-    const entries = [
-      ...writableContactProperties.map((property) => [`contact:${property.name}`, property] as const),
-      ...writableCompanyProperties.map((property) => [`company:${property.name}`, property] as const),
-    ];
-    return new Map(entries);
-  }, [writableContactProperties, writableCompanyProperties]);
-
   const rowValidation = useMemo(
-    () =>
-      rows.reduce<Record<string, string[]>>((acc, row) => {
-        acc[row.id] = validatePayload(row, columns, mapping, propertyMap);
+    () => {
+      if (!importObjectType) return {};
+      return rows.reduce<Record<string, string[]>>((acc, row) => {
+        acc[row.id] = validatePayloadForObjectType(row, mapping, activeProperties, importObjectType);
         return acc;
-      }, {}),
-    [rows, columns, mapping, propertyMap],
+      }, {});
+    },
+    [rows, mapping, activeProperties, importObjectType],
   );
 
   const invalidRows = Object.values(rowValidation).filter((errors) => errors.length > 0).length;
   const validRows = rows.length - invalidRows;
-  const mappedRows = rows.map((row) => buildPayload(row, columns, mapping, propertyMap));
-  const contactsToCreate = mappedRows.filter((row) => row.contact).length;
-  const companiesToCreate = mappedRows.filter((row) => row.company).length;
+  const contactsToCreate = importObjectType === "contact" ? rows.length : 0;
+  const companiesToCreate = importObjectType === "company" ? rows.length : 0;
 
   async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -243,8 +221,8 @@ export function CsvImporter({ contactProperties, companyProperties }: CsvImporte
         return next;
       });
 
-      const inferredMapping = header.reduce<Record<string, MappingValue>>((acc, column) => {
-        acc[column] = inferMapping(column, writableContactProperties, writableCompanyProperties);
+      const inferredMapping = activeProperties.reduce<Record<string, string>>((acc, property) => {
+        acc[property.name] = inferCsvColumnMapping(property, header);
         return acc;
       }, {});
 
@@ -297,7 +275,14 @@ export function CsvImporter({ contactProperties, companyProperties }: CsvImporte
 
     setIsSubmitting(true);
     try {
-      const payloadRows = rows.map((row) => buildPayload(row, columns, mapping, propertyMap));
+      const payloadRows = rows.map((row) => {
+        const payload = buildPayloadForObjectType(row, mapping, activeProperties);
+        return {
+          contact: importObjectType === "contact" ? payload : undefined,
+          company: importObjectType === "company" ? payload : undefined,
+        };
+      });
+
       const response = await fetch("/api/upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -341,47 +326,102 @@ export function CsvImporter({ contactProperties, companyProperties }: CsvImporte
       <div className="mx-auto w-full max-w-7xl space-y-8">
         <section className="rounded-[2rem] border border-slate-200/80 bg-white p-8 shadow-xl shadow-slate-900/5 sm:p-10">
           <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-500">CSV Import</p>
-          <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">Map one CSV into HubSpot contacts and companies.</h1>
+          <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">Map one CSV into HubSpot contacts or companies.</h1>
           <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
-            Validate access, upload a CSV, map columns to HubSpot properties, correct rows in the browser, then import.
+            Validate access, choose object type, upload a CSV, map properties to CSV columns, correct rows in the browser, then import.
           </p>
         </section>
 
         <HubspotAccessGate compact onAccessChange={setAccess} />
 
-        <Card>
-          <CardHeader>
-            <CardTitle>1. Upload CSV</CardTitle>
-            <CardDescription>Upload a single .csv file. The app reads it locally and never submits until you review the mapping and summary.</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4 lg:grid-cols-[1fr_auto]">
-            <label className="block rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-700">
-              <span className="font-semibold text-slate-950">Choose CSV file</span>
-              <input type="file" accept=".csv,text/csv" onChange={handleFileChange} className="mt-4 w-full cursor-pointer" />
-            </label>
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-700">
-              <p className="font-semibold text-slate-950">{fileName || "No file selected"}</p>
-              <p className="mt-2">{isParsing ? "Reading CSV..." : rows.length ? `${rows.length} rows loaded` : "Rows appear after upload."}</p>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="rounded-[2rem] border border-slate-200/80 bg-white p-8 shadow-sm shadow-slate-900/5">
+          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-500 mb-4">Object Type Selection</p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {[
+              {
+                id: "contact" as ImportObjectType,
+                title: "Contacts Import",
+                description: "Import records as HubSpot contacts.",
+                icon: "👤",
+              },
+              {
+                id: "company" as ImportObjectType,
+                title: "Companies Import",
+                description: "Import records as HubSpot companies.",
+                icon: "🏢",
+              },
+            ].map((option) => {
+              const selected = importObjectType === option.id;
+              return (
+                <div
+                  key={option.id}
+                  onClick={() => {
+                    if (step !== "upload") {
+                      // Reset import if they change object type after uploading
+                      setFileName("");
+                      setColumns([]);
+                      setRows([]);
+                      setMapping({});
+                      setStep("upload");
+                    }
+                    setImportObjectType(option.id);
+                  }}
+                  className={`group cursor-pointer rounded-2xl border p-5 transition duration-300 ${
+                    selected
+                      ? "border-slate-900 bg-slate-950/5 shadow-md ring-2 ring-slate-900"
+                      : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm"
+                  }`}
+                >
+                  <div className="flex items-center gap-4">
+                    <span className="text-2xl">{option.icon}</span>
+                    <div>
+                      <h3 className="font-semibold text-slate-950">{option.title}</h3>
+                      <p className="text-xs text-slate-500 mt-1">{option.description}</p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
 
-        {columns.length ? (
+        {importObjectType ? (
           <Card>
             <CardHeader>
-              <CardTitle>2. Map columns</CardTitle>
-              <CardDescription>Every mapping is editable. Unmapped columns are ignored during import.</CardDescription>
+              <CardTitle>1. Upload CSV</CardTitle>
+              <CardDescription>Upload a single .csv file for the selected {importObjectType === "contact" ? "contacts" : "companies"} flow.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4 lg:grid-cols-[1fr_auto]">
+              <label className="block rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-700">
+                <span className="font-semibold text-slate-950">Choose CSV file</span>
+                <input type="file" accept=".csv,text/csv" onChange={handleFileChange} className="mt-4 w-full cursor-pointer" />
+              </label>
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-700">
+                <p className="font-semibold text-slate-950">{fileName || "No file selected"}</p>
+                <p className="mt-2">{isParsing ? "Reading CSV..." : rows.length ? `${rows.length} rows loaded` : "Rows appear after upload."}</p>
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {columns.length && importObjectType ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>2. Map properties</CardTitle>
+              <CardDescription>Map HubSpot {importObjectType === "contact" ? "Contact" : "Company"} properties to CSV columns.</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 md:grid-cols-2">
-              {columns.map((column) => (
-                <div key={column} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <p className="mb-2 text-sm font-semibold text-slate-950">{column}</p>
+              {activeProperties.map((property) => (
+                <div key={property.name} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 flex flex-col justify-between">
+                  <div className="mb-2">
+                    <p className="text-sm font-semibold text-slate-950">{property.label}</p>
+                    <p className="text-xs text-slate-500">{property.name}</p>
+                  </div>
                   <Select
                     label=""
-                    options={propertyOptions}
-                    searchable
-                    value={mapping[column] || ""}
-                    onValueChange={(value) => setMapping((current) => ({ ...current, [column]: value as MappingValue }))}
+                    options={csvColumnOptions}
+                    value={mapping[property.name] || ""}
+                    onValueChange={(value) => setMapping((current) => ({ ...current, [property.name]: value }))}
                   />
                 </div>
               ))}
@@ -389,11 +429,11 @@ export function CsvImporter({ contactProperties, companyProperties }: CsvImporte
           </Card>
         ) : null}
 
-        {rows.length ? (
+        {rows.length && importObjectType ? (
           <Card>
             <CardHeader>
               <CardTitle>3. Edit and validate rows</CardTitle>
-              <CardDescription>Fix highlighted rows directly here. You do not need to upload again.</CardDescription>
+              <CardDescription>Fix highlighted rows directly in the cells. Corrected values are saved instantly for import.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex flex-wrap gap-3">
@@ -449,11 +489,11 @@ export function CsvImporter({ contactProperties, companyProperties }: CsvImporte
           </Card>
         ) : null}
 
-        {rows.length ? (
+        {rows.length && importObjectType ? (
           <Card>
             <CardHeader>
               <CardTitle>4. Import summary</CardTitle>
-              <CardDescription>Review what will be sent to HubSpot before any API request is made.</CardDescription>
+              <CardDescription>Review the statistics before submitting to HubSpot.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">

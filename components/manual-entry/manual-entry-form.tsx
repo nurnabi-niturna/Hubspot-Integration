@@ -17,7 +17,7 @@ interface ManualEntryFormProps {
 
 type ManualEntryFormValues = Record<string, string>;
 
-type SaveMode = "contact" | "company" | "both";
+type SaveMode = "contact" | "company";
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const urlPattern = /^(https?:\/\/)?[\w\-]+(\.[\w\-]+)+[\w\-\._~:/?#[\]@!$&'()*+,;=.]+$/i;
@@ -52,7 +52,7 @@ function getValidationRules(property: HubSpotPropertyDefinition, objectType: "co
   const rules: Record<string, unknown> = {};
 
   if (objectType === "contact") {
-    if (property.name === "email" && saveMode !== "company") {
+    if (property.name === "email" && saveMode === "contact") {
       rules.required = `${property.label} is required.`;
     }
   }
@@ -111,7 +111,7 @@ function getFieldType(property: HubSpotPropertyDefinition) {
 export function ManualEntryForm({ contactProperties, companyProperties }: ManualEntryFormProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
-  const [saveMode, setSaveMode] = useState<SaveMode>("both");
+  const [saveMode, setSaveMode] = useState<SaveMode>("contact");
   const [access, setAccess] = useState<HubspotAccessState>({
     accessToken: "",
     validated: false,
@@ -245,9 +245,9 @@ export function ManualEntryForm({ contactProperties, companyProperties }: Manual
     try {
       const payload = {
         accessToken: access.accessToken,
-        contact: saveMode !== "company" ? contactPayload : undefined,
-        company: saveMode !== "contact" ? (Object.keys(companyPayload).length ? companyPayload : undefined) : undefined,
-        associate: saveMode === "both",
+        contact: saveMode === "contact" ? contactPayload : undefined,
+        company: saveMode === "company" ? companyPayload : undefined,
+        associate: false,
         saveMode,
       };
 
@@ -274,189 +274,197 @@ export function ManualEntryForm({ contactProperties, companyProperties }: Manual
 
   return (
     <main className="min-h-screen bg-slate-50 py-14 px-6 sm:px-10 lg:px-16">
-      <div className="mx-auto w-full max-w-7xl space-y-10">
+      <div className="mx-auto w-full max-w-4xl space-y-10">
         <section className="rounded-[2rem] border border-slate-200/80 bg-white p-10 shadow-xl shadow-slate-900/5 sm:p-14">
           <div className="space-y-4">
             <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-500">Manual Entry</p>
-            <h1 className="text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">Create a contact and company with rich HubSpot metadata.</h1>
+            <h1 className="text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">Create a contact or company with rich HubSpot metadata.</h1>
             <p className="max-w-3xl text-lg leading-8 text-slate-600">
-              Use all supported HubSpot fields in one structured form. Required fields validate immediately and payloads are sent to HubSpot.
+              Use all supported HubSpot fields in a structured form. Required fields validate immediately and payloads are sent to HubSpot.
             </p>
           </div>
         </section>
 
         <HubspotAccessGate compact onAccessChange={setAccess} />
 
-        <div className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm shadow-slate-900/5">
-          <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-sm font-semibold text-slate-900">Save As</p>
-              <p className="text-sm text-slate-600">Choose whether to save contact, company, or both.</p>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              {[
-                { label: "Contact", value: "contact" as SaveMode },
-                { label: "Company", value: "company" as SaveMode },
-                { label: "Both", value: "both" as SaveMode },
-              ].map((option) => (
-                <Button
-                  key={option.value}
-                  type="button"
-                  variant={saveMode === option.value ? "secondary" : "outline"}
+        <div className="rounded-[2rem] border border-slate-200/80 bg-white p-8 shadow-sm shadow-slate-900/5">
+          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-500 mb-4">Object Type Selection</p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {[
+              {
+                id: "contact" as SaveMode,
+                title: "Contacts Form",
+                description: "Create or update an individual contact in HubSpot.",
+                icon: "👤",
+              },
+              {
+                id: "company" as SaveMode,
+                title: "Companies Form",
+                description: "Create or update an organization/business in HubSpot.",
+                icon: "🏢",
+              },
+            ].map((option) => {
+              const selected = saveMode === option.id;
+              return (
+                <div
+                  key={option.id}
                   onClick={() => {
-                    setSaveMode(option.value);
+                    setSaveMode(option.id);
                     window.setTimeout(() => trigger(), 0);
                   }}
+                  className={`group cursor-pointer rounded-2xl border p-5 transition duration-300 ${
+                    selected
+                      ? "border-slate-900 bg-slate-950/5 shadow-md ring-2 ring-slate-900"
+                      : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm"
+                  }`}
                 >
-                  {option.label}
-                </Button>
-              ))}
-            </div>
-          </div>
-          <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-            {saveMode === "contact" && "Saving as Contact only. Company data will be ignored."}
-            {saveMode === "company" && "Saving as Company only. Contact data will be ignored."}
-            {saveMode === "both" && "Saving both contact and company. The objects will be associated after save."}
+                  <div className="flex items-center gap-4">
+                    <span className="text-2xl">{option.icon}</span>
+                    <div>
+                      <h3 className="font-semibold text-slate-950">{option.title}</h3>
+                      <p className="text-xs text-slate-500 mt-1">{option.description}</p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-          <div className="space-y-6">
-            {contactSections.map((section, sectionIdx) => (
-              <Card key={`contact-section-${sectionIdx}`} className="space-y-4">
-                <CardHeader>
-                  <CardTitle>{section.title}</CardTitle>
-                  <CardDescription>{section.description}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-5">
-                  <div className="grid gap-5 sm:grid-cols-2">
-                    {section.fields.map((fieldName) => {
-                      const field = fieldDefinition(fieldName, "contact");
-                      if (!field) return null;
-                      const rules = getValidationRules(contactMap[field.propertyName], "contact", saveMode);
-                      const value = watchedValues[field.key] ?? "";
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+          {saveMode === "contact" && (
+            <div className="space-y-6">
+              {contactSections.map((section, sectionIdx) => (
+                <Card key={`contact-section-${sectionIdx}`} className="space-y-4">
+                  <CardHeader>
+                    <CardTitle>{section.title}</CardTitle>
+                    <CardDescription>{section.description}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-5">
+                    <div className="grid gap-5 sm:grid-cols-2">
+                      {section.fields.map((fieldName) => {
+                        const field = fieldDefinition(fieldName, "contact");
+                        if (!field) return null;
+                        const rules = getValidationRules(contactMap[field.propertyName], "contact", saveMode);
+                        const value = watchedValues[field.key] ?? "";
 
-                      if (contactMap[field.propertyName]?.type === "enumeration" && contactMap[field.propertyName]?.options?.length) {
+                        if (contactMap[field.propertyName]?.type === "enumeration" && contactMap[field.propertyName]?.options?.length) {
+                          return (
+                            <div key={field.key} className="space-y-2">
+                              <label className="block text-sm font-medium text-slate-800">{field.label}</label>
+                              <Select
+                                options={contactMap[field.propertyName]!.options!}
+                                label=""
+                                value={String(value)}
+                                onValueChange={(next) => setValue(field.key, next, { shouldDirty: true, shouldValidate: true })}
+                              />
+                              {errors[field.key] ? <p className="text-sm text-rose-600">{errors[field.key]?.message}</p> : null}
+                            </div>
+                          );
+                        }
+
                         return (
-                          <div key={field.key} className="space-y-2">
-                            <label className="block text-sm font-medium text-slate-800">{field.label}</label>
-                            <Select
-                              options={contactMap[field.propertyName]!.options!}
-                              label=""
-                              searchable={field.propertyName === "hs_lead_status" || field.propertyName === "lifecyclestage"}
-                              value={String(value)}
-                              onValueChange={(next) => setValue(field.key, next, { shouldDirty: true, shouldValidate: true })}
-                            />
-                            {errors[field.key] ? <p className="text-sm text-rose-600">{errors[field.key]?.message}</p> : null}
-                          </div>
-                        );
-                      }
-
-                      return (
-                        <label key={field.key} className="space-y-2">
-                          <span className="text-sm font-medium text-slate-800">{field.label}</span>
-                          <Input
-                            type={getFieldType(contactMap[field.propertyName])}
-                            {...register(field.key, {
-                              ...rules,
-                              validate: field.propertyName === "email" ? undefined : undefined,
-                            })}
-                            placeholder={field.label}
-                          />
-                          {errors[field.key] ? <p className="text-sm text-rose-600">{errors[field.key]?.message}</p> : null}
-                        </label>
-                      );
-                    })}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-
-          <div className="space-y-6">
-            {companySections.map((section, sectionIdx) => (
-              <Card key={`company-section-${sectionIdx}`} className="space-y-4">
-                <CardHeader>
-                  <CardTitle>{section.title}</CardTitle>
-                  <CardDescription>{section.description}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-5">
-                  <div className="grid gap-5 sm:grid-cols-2">
-                    {section.fields.map((fieldName) => {
-                      const rawName = fieldName.replace(/^company_/, "");
-                      const field = fieldDefinition(fieldName, "company");
-                      if (!field) return null;
-                      const property = companyMap[rawName];
-                      const rules = getValidationRules(property, "company", saveMode);
-                      const value = watchedValues[field.key] ?? "";
-
-                      if (rawName === "name") {
-                        rules.validate = (value: string) =>
-                          saveMode === "contact" ||
-                          value.trim().length > 0 || getValues("company_domain").trim().length > 0 ||
-                          "Company name or domain is required.";
-                      }
-
-                      if (rawName === "domain") {
-                        rules.validate = (value: string) =>
-                          saveMode === "contact" ||
-                          value.trim().length > 0 || getValues("company_name").trim().length > 0 ||
-                          "Company name or domain is required.";
-                      }
-
-                      if (property?.type === "enumeration" && property.options?.length) {
-                        return (
-                          <div key={field.key} className="space-y-2">
-                            <label className="block text-sm font-medium text-slate-800">{field.label}</label>
-                            <Select
-                              options={property.options}
-                              label=""
-                              searchable={field.propertyName === "industry" || field.propertyName === "company_size" || field.propertyName === "type"}
-                              value={String(value)}
-                              onValueChange={(next) => setValue(field.key, next, { shouldDirty: true, shouldValidate: true })}
-                            />
-                            {errors[field.key] ? <p className="text-sm text-rose-600">{errors[field.key]?.message}</p> : null}
-                          </div>
-                        );
-                      }
-
-                      if (field.propertyName === "description" || field.propertyName === "about_us") {
-                        return (
-                          <label key={field.key} className="space-y-2 sm:col-span-2">
+                          <label key={field.key} className="space-y-2 block">
                             <span className="text-sm font-medium text-slate-800">{field.label}</span>
-                            <textarea
+                            <Input
+                              type={getFieldType(contactMap[field.propertyName])}
                               {...register(field.key, rules)}
-                              rows={4}
-                              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-950 shadow-sm transition duration-200 focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200"
+                              placeholder={field.label}
                             />
                             {errors[field.key] ? <p className="text-sm text-rose-600">{errors[field.key]?.message}</p> : null}
                           </label>
                         );
-                      }
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
 
-                      return (
-                        <label key={field.key} className="space-y-2">
-                          <span className="text-sm font-medium text-slate-800">{field.label}</span>
-                          <Input
-                            type={getFieldType(property)}
-                            {...register(field.key, rules)}
-                            placeholder={field.label}
-                          />
-                          {errors[field.key] ? <p className="text-sm text-rose-600">{errors[field.key]?.message}</p> : null}
-                        </label>
-                      );
-                    })}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+          {saveMode === "company" && (
+            <div className="space-y-6">
+              {companySections.map((section, sectionIdx) => (
+                <Card key={`company-section-${sectionIdx}`} className="space-y-4">
+                  <CardHeader>
+                    <CardTitle>{section.title}</CardTitle>
+                    <CardDescription>{section.description}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-5">
+                    <div className="grid gap-5 sm:grid-cols-2">
+                      {section.fields.map((fieldName) => {
+                        const rawName = fieldName.replace(/^company_/, "");
+                        const field = fieldDefinition(fieldName, "company");
+                        if (!field) return null;
+                        const property = companyMap[rawName];
+                        const rules = getValidationRules(property, "company", saveMode);
+                        const value = watchedValues[field.key] ?? "";
 
-          <div className="lg:col-span-full">
+                        if (rawName === "name") {
+                          rules.validate = (value: string) =>
+                            value.trim().length > 0 || getValues("company_domain").trim().length > 0 ||
+                            "Company name or domain is required.";
+                        }
+
+                        if (rawName === "domain") {
+                          rules.validate = (value: string) =>
+                            value.trim().length > 0 || getValues("company_name").trim().length > 0 ||
+                            "Company name or domain is required.";
+                        }
+
+                        if (property?.type === "enumeration" && property.options?.length) {
+                          return (
+                            <div key={field.key} className="space-y-2">
+                              <label className="block text-sm font-medium text-slate-800">{field.label}</label>
+                              <Select
+                                options={property.options}
+                                label=""
+                                value={String(value)}
+                                onValueChange={(next) => setValue(field.key, next, { shouldDirty: true, shouldValidate: true })}
+                              />
+                              {errors[field.key] ? <p className="text-sm text-rose-600">{errors[field.key]?.message}</p> : null}
+                            </div>
+                          );
+                        }
+
+                        if (field.propertyName === "description" || field.propertyName === "about_us") {
+                          return (
+                            <label key={field.key} className="space-y-2 sm:col-span-2 block">
+                              <span className="text-sm font-medium text-slate-800">{field.label}</span>
+                              <textarea
+                                {...register(field.key, rules)}
+                                rows={4}
+                                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-950 shadow-sm transition duration-200 focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200"
+                              />
+                              {errors[field.key] ? <p className="text-sm text-rose-600">{errors[field.key]?.message}</p> : null}
+                            </label>
+                          );
+                        }
+
+                        return (
+                          <label key={field.key} className="space-y-2 block">
+                            <span className="text-sm font-medium text-slate-800">{field.label}</span>
+                            <Input
+                              type={getFieldType(property)}
+                              {...register(field.key, rules)}
+                              placeholder={field.label}
+                            />
+                            {errors[field.key] ? <p className="text-sm text-rose-600">{errors[field.key]?.message}</p> : null}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+
+          <div className="col-span-full">
             <div className="flex flex-col gap-4 rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm shadow-slate-900/5 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-sm font-semibold text-slate-900">Submit your import data</p>
-                <p className="text-sm text-slate-600">The form sends a contact and optional company payload to HubSpot.</p>
+                <p className="text-sm text-slate-600">The form sends the payload to HubSpot.</p>
               </div>
               <Button type="submit" variant="default" size="lg" isLoading={isLoading} disabled={!access.validated || !isValid || isLoading}>
                 Save manual entry
