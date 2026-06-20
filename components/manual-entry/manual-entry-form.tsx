@@ -273,13 +273,13 @@ export function ManualEntryForm({ contactProperties, companyProperties }: Manual
   };
 
   return (
-    <main className="min-h-screen bg-slate-50 py-14 px-6 sm:px-10 lg:px-16">
+    <main className="min-h-screen bg-slate-50 dark:bg-slate-950/20 py-14 px-6 sm:px-10 lg:px-16">
       <div className="mx-auto w-full max-w-4xl space-y-10">
-        <section className="rounded-[2rem] border border-slate-200/80 bg-white p-10 shadow-xl shadow-slate-900/5 sm:p-14">
+        <section className="rounded-[2rem] border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-10 shadow-xl shadow-slate-900/5 sm:p-14">
           <div className="space-y-4">
-            <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-500">Manual Entry</p>
-            <h1 className="text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">Create a contact or company with rich HubSpot metadata.</h1>
-            <p className="max-w-3xl text-lg leading-8 text-slate-600">
+            <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">Manual Entry</p>
+            <h1 className="text-4xl font-semibold tracking-tight text-slate-950 dark:text-slate-100 sm:text-5xl">Create a contact or company with rich HubSpot metadata.</h1>
+            <p className="max-w-3xl text-lg leading-8 text-slate-600 dark:text-slate-400">
               Use all supported HubSpot fields in a structured form. Required fields validate immediately and payloads are sent to HubSpot.
             </p>
           </div>
@@ -287,8 +287,8 @@ export function ManualEntryForm({ contactProperties, companyProperties }: Manual
 
         <HubspotAccessGate compact onAccessChange={setAccess} />
 
-        <div className="rounded-[2rem] border border-slate-200/80 bg-white p-8 shadow-sm shadow-slate-900/5">
-          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-500 mb-4">Object Type Selection</p>
+        <div className="rounded-[2rem] border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-8 shadow-sm shadow-slate-900/5">
+          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400 mb-4">Object Type Selection</p>
           <div className="grid gap-4 sm:grid-cols-2">
             {[
               {
@@ -314,15 +314,15 @@ export function ManualEntryForm({ contactProperties, companyProperties }: Manual
                   }}
                   className={`group cursor-pointer rounded-2xl border p-5 transition duration-300 ${
                     selected
-                      ? "border-slate-900 bg-slate-950/5 shadow-md ring-2 ring-slate-900"
-                      : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm"
+                      ? "border-slate-900 dark:border-slate-100 bg-slate-950/5 dark:bg-white/5 shadow-md ring-2 ring-slate-900 dark:ring-slate-100"
+                      : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700 hover:shadow-sm"
                   }`}
                 >
                   <div className="flex items-center gap-4">
                     <span className="text-2xl">{option.icon}</span>
                     <div>
-                      <h3 className="font-semibold text-slate-950">{option.title}</h3>
-                      <p className="text-xs text-slate-500 mt-1">{option.description}</p>
+                      <h3 className="font-semibold text-slate-950 dark:text-slate-100">{option.title}</h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{option.description}</p>
                     </div>
                   </div>
                 </div>
@@ -461,10 +461,10 @@ export function ManualEntryForm({ contactProperties, companyProperties }: Manual
           )}
 
           <div className="col-span-full">
-            <div className="flex flex-col gap-4 rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm shadow-slate-900/5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-4 rounded-[2rem] border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-6 shadow-sm shadow-slate-900/5 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="text-sm font-semibold text-slate-900">Submit your import data</p>
-                <p className="text-sm text-slate-600">The form sends the payload to HubSpot.</p>
+                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Submit your import data</p>
+                <p className="text-sm text-slate-600 dark:text-slate-400">The form sends the payload to HubSpot.</p>
               </div>
               <Button type="submit" variant="default" size="lg" isLoading={isLoading} disabled={!access.validated || !isValid || isLoading}>
                 Save manual entry

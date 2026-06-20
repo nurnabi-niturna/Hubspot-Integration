@@ -468,9 +468,9 @@ export function CsvImporter({ contactProperties, companyProperties }: CsvImporte
             </CardHeader>
             <CardContent className="grid gap-4 md:grid-cols-2">
               {columns.map((column) => (
-                <div key={column} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 flex flex-col justify-between">
+                <div key={column} className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 p-4 flex flex-col justify-between">
                   <div className="mb-2">
-                    <p className="text-sm font-semibold text-slate-950">{column}</p>
+                    <p className="text-sm font-semibold text-slate-950 dark:text-slate-100">{column}</p>
                   </div>
                   <Select
                     label=""
