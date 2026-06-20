@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { HubspotAccessGate, type HubspotAccessState } from "@/components/hubspot-access-gate";
 import { Button } from "@/components/ui/button";
@@ -36,14 +36,12 @@ function normalize(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-function inferCsvColumnMapping(property: HubSpotPropertyDefinition, columns: string[]): string {
-  const propName = normalize(property.name);
-  const propLabel = normalize(property.label);
+function inferMapping(column: string, properties: HubSpotPropertyDefinition[]): string {
+  const normalized = normalize(column);
   
-  for (const column of columns) {
-    const colNorm = normalize(column);
-    if (colNorm === propName || colNorm === propLabel) {
-      return column;
+  for (const prop of properties) {
+    if (normalize(prop.name) === normalized || normalize(prop.label) === normalized) {
+      return prop.name;
     }
   }
 
@@ -60,10 +58,10 @@ function inferCsvColumnMapping(property: HubSpotPropertyDefinition, columns: str
     website: ["website", "site", "webaddress", "url"],
   };
 
-  const propertyAliases = aliases[property.name] || [];
-  for (const col of columns) {
-    if (propertyAliases.includes(normalize(col))) {
-      return col;
+  for (const prop of properties) {
+    const propertyAliases = aliases[prop.name] || [];
+    if (propertyAliases.includes(normalized)) {
+      return prop.name;
     }
   }
 
@@ -91,13 +89,15 @@ function buildPayloadForObjectType(
   properties: HubSpotPropertyDefinition[],
 ) {
   const payload: Record<string, string> = {};
-  for (const property of properties) {
-    const csvColumn = mapping[property.name];
-    if (!csvColumn) continue;
+  const propertyMap = new Map(properties.map((p) => [p.name, p]));
+
+  for (const [csvColumn, propertyName] of Object.entries(mapping)) {
+    if (!propertyName) continue;
     const rawValue = String(row[csvColumn] ?? "").trim();
     if (!rawValue) continue;
-    const value = coerceEnum(rawValue, property);
-    payload[property.name] = value;
+    const property = propertyMap.get(propertyName);
+    const value = property ? coerceEnum(rawValue, property) : rawValue;
+    payload[propertyName] = value;
   }
   return payload;
 }
@@ -110,6 +110,7 @@ function validatePayloadForObjectType(
 ) {
   const errors: string[] = [];
   const payload = buildPayloadForObjectType(row, mapping, properties);
+  const propertyMap = new Map(properties.map((p) => [p.name, p]));
 
   if (objectType === "contact") {
     if (!payload.email) {
@@ -123,11 +124,13 @@ function validatePayloadForObjectType(
     }
   }
 
-  for (const property of properties) {
-    const csvColumn = mapping[property.name];
-    if (!csvColumn) continue;
+  for (const [csvColumn, propertyName] of Object.entries(mapping)) {
+    if (!propertyName) continue;
     const value = String(row[csvColumn] ?? "").trim();
     if (!value) continue;
+
+    const property = propertyMap.get(propertyName);
+    if (!property) continue;
 
     if (property.format === "number" && !numberPattern.test(value)) {
       errors.push(`${csvColumn}: value must be numeric.`);
@@ -154,25 +157,76 @@ export function CsvImporter({ contactProperties, companyProperties }: CsvImporte
   const [fileName, setFileName] = useState("");
   const [columns, setColumns] = useState<string[]>([]);
   const [rows, setRows] = useState<PreviewRow[]>([]);
-  const [mapping, setMapping] = useState<Record<string, string>>({}); // propertyName -> CSV column
+  const [mapping, setMapping] = useState<Record<string, string>>({}); // csvColumn -> HubSpot Property Name
   const [isParsing, setIsParsing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
 
-  const activeProperties = useMemo(() => {
-    if (importObjectType === "contact") return writableContactProperties;
-    if (importObjectType === "company") return writableCompanyProperties;
-    return [];
-  }, [importObjectType, writableContactProperties, writableCompanyProperties]);
+  const [dynamicProperties, setDynamicProperties] = useState<HubSpotPropertyDefinition[]>([]);
+  const [isLoadingProperties, setIsLoadingProperties] = useState(false);
 
-  const csvColumnOptions = useMemo(
-    () => [
+  useEffect(() => {
+    if (!access.validated || !importObjectType) {
+      setDynamicProperties([]);
+      return;
+    }
+
+    async function fetchProperties() {
+      setIsLoadingProperties(true);
+      try {
+        const response = await fetch("/api/hubspot/properties", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            accessToken: access.accessToken,
+            objectType: importObjectType === "contact" ? "contacts" : "companies",
+          }),
+        });
+        const result = await response.json();
+        if (result.success && Array.isArray(result.properties)) {
+          const mapped: HubSpotPropertyDefinition[] = result.properties.map((prop: any) => ({
+            name: prop.name,
+            label: prop.label,
+            type: prop.type === "enumeration" ? "enumeration" : prop.type === "number" ? "number" : prop.type === "datetime" ? "datetime" : "string",
+            format: prop.name === "email" ? "email" : (prop.name === "phone" || prop.name === "mobilephone") ? "tel" : "text",
+            objectType: importObjectType,
+            primary: prop.name === "email" || prop.name === "name" || prop.name === "domain",
+            readonly: prop.readonly,
+            options: prop.options,
+          }));
+          setDynamicProperties(mapped);
+        } else {
+          setDynamicProperties(importObjectType === "contact" ? contactProperties : companyProperties);
+        }
+      } catch (error) {
+        console.error("Failed to fetch dynamic properties, using static fallback", error);
+        setDynamicProperties(importObjectType === "contact" ? contactProperties : companyProperties);
+      } finally {
+        setIsLoadingProperties(false);
+      }
+    }
+
+    fetchProperties();
+  }, [access.validated, access.accessToken, importObjectType, contactProperties, companyProperties]);
+
+  const activeProperties = useMemo(() => {
+    if (!importObjectType) return [];
+    if (dynamicProperties.length > 0) {
+      return dynamicProperties.filter((property) => !property.readonly);
+    }
+    return importObjectType === "contact" ? writableContactProperties : writableCompanyProperties;
+  }, [importObjectType, dynamicProperties, writableContactProperties, writableCompanyProperties]);
+
+  const hubspotPropertyOptions = useMemo(() => {
+    return [
       { label: "Do Not Map", value: "" },
-      ...columns.map((column) => ({ label: column, value: column })),
-    ],
-    [columns],
-  );
+      ...activeProperties.map((prop) => ({
+        label: prop.label || prop.name,
+        value: prop.name,
+      })),
+    ];
+  }, [activeProperties]);
 
   const rowValidation = useMemo(
     () => {
@@ -221,8 +275,8 @@ export function CsvImporter({ contactProperties, companyProperties }: CsvImporte
         return next;
       });
 
-      const inferredMapping = activeProperties.reduce<Record<string, string>>((acc, property) => {
-        acc[property.name] = inferCsvColumnMapping(property, header);
+      const inferredMapping = header.reduce<Record<string, string>>((acc, column) => {
+        acc[column] = inferMapping(column, activeProperties);
         return acc;
       }, {});
 
@@ -357,7 +411,6 @@ export function CsvImporter({ contactProperties, companyProperties }: CsvImporte
                   key={option.id}
                   onClick={() => {
                     if (step !== "upload") {
-                      // Reset import if they change object type after uploading
                       setFileName("");
                       setColumns([]);
                       setRows([]);
@@ -389,7 +442,10 @@ export function CsvImporter({ contactProperties, companyProperties }: CsvImporte
           <Card>
             <CardHeader>
               <CardTitle>1. Upload CSV</CardTitle>
-              <CardDescription>Upload a single .csv file for the selected {importObjectType === "contact" ? "contacts" : "companies"} flow.</CardDescription>
+              <CardDescription>
+                Upload a single .csv file for the selected {importObjectType === "contact" ? "contacts" : "companies"} flow.
+                {isLoadingProperties && " (Fetching properties from HubSpot...)"}
+              </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 lg:grid-cols-[1fr_auto]">
               <label className="block rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-700">
@@ -408,20 +464,20 @@ export function CsvImporter({ contactProperties, companyProperties }: CsvImporte
           <Card>
             <CardHeader>
               <CardTitle>2. Map properties</CardTitle>
-              <CardDescription>Map HubSpot {importObjectType === "contact" ? "Contact" : "Company"} properties to CSV columns.</CardDescription>
+              <CardDescription>Map CSV columns to any HubSpot {importObjectType === "contact" ? "Contact" : "Company"} property.</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 md:grid-cols-2">
-              {activeProperties.map((property) => (
-                <div key={property.name} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 flex flex-col justify-between">
+              {columns.map((column) => (
+                <div key={column} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 flex flex-col justify-between">
                   <div className="mb-2">
-                    <p className="text-sm font-semibold text-slate-950">{property.label}</p>
-                    <p className="text-xs text-slate-500">{property.name}</p>
+                    <p className="text-sm font-semibold text-slate-950">{column}</p>
                   </div>
                   <Select
                     label=""
-                    options={csvColumnOptions}
-                    value={mapping[property.name] || ""}
-                    onValueChange={(value) => setMapping((current) => ({ ...current, [property.name]: value }))}
+                    options={hubspotPropertyOptions}
+                    searchable
+                    value={mapping[column] || ""}
+                    onValueChange={(value) => setMapping((current) => ({ ...current, [column]: value }))}
                   />
                 </div>
               ))}
